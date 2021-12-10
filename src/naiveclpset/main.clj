@@ -63,6 +63,13 @@
   (run* [q] (== #{[:a 1]} #{[:a q]}))
   (run* [q] (== #{[:a 1]} {:a q}))
   (run* [q] (== {:a 1} #{[:a q]}))
+
+  ;; now we support unifying maps as kv-sets
+  (run* [q] (== {:a 1} {:a q}))
+  (run* [q] (== {:a 1} {q 1}))
+  (run* [k v] (== #{[:a 1]} {k v}))
+  (run* [q] (== {:a 1} {q 1 :b 1}))
+  (run* [q] (== {:a 1} {q 1 :b 2}))
 )
 
 (comment
@@ -228,3 +235,11 @@
   (run* [p q] (conso {:a 1} p q))
   (run* [q] (firsto #{q} 1))
 )
+
+(comment ; featureo is a handy function to talk about partial maps
+  (run* [q] (featureo {:a 1 :b 2} q))
+  (run* [m] (featureo m {:a 1 :b 2}))
+  (run* [kv] (featureo {:a 1 :b 2} kv))
+  (run* [k v] (featureo {:a 1 :b 2} {k v}))
+  (run* [m k v] (featureo m {k v}))
+  )
