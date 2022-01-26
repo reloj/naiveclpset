@@ -59,6 +59,10 @@
   (run* [q] (== #{1 2 #{3 q}} #{1 2 #{3 4}})) ; fails!
   (run* [q] (== #{ #{ #{q} :bar} :baz}  #{:baz #{:bar #{:foo}}}))
 
+  ;; Note that sets are "unordered", they should not unify with something with order! They aren't really the same if only one has an order, right? Use permuteo otherwise!
+  (run* [q] (== [1 2 3] #{3 2 1}))
+  (run* [q] (permuteo [1 2 3] #{3 2 1}))
+
   ;; a set of kv vectors should unify with a map
   (run* [q] (== #{[:a 1]} #{[:a q]}))
   (run* [q] (== #{[:a 1]} {:a q}))
@@ -86,7 +90,8 @@
 
       ;; ...to add this condition so conso unifies with maps and sets
       (or (map? v)(set? v))
-      (recur u (seq v) s)
+      (reduce #(mplus % (-inc %2))
+              (for [p (permutations v)] (unify s u p)))
 
       (lcons? v)
       (loop [u u v v s s]
@@ -107,6 +112,7 @@
 ;;;;;;;;;;;;;;;;;;;;; only 2 lines have been added to the original, duly noted below
 
 (in-ns 'clojure.core.logic)
+(require '[clojure.math.combinatorics :refer [permutations]])
 (deftype LCons [a d ^{:unsynchronized-mutable true :tag int} cache meta]
   ITreeTerm
   clojure.lang.IObj
@@ -174,8 +180,10 @@
               (unify s u nil))
             nil)))
 
+      ;; This was added to the original
       (or (map? v)(set? v))
-      (unify-terms u (seq v) s)
+      (reduce #(mplus % (-inc %2))
+              (for [p (permutations v)] (unify s u p)))
 
       (lcons? v)
       (loop [u u v v s s]
@@ -223,8 +231,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HORRIBLE HACK
 
 (comment
-  ;; Unifying with LCons now works
-  (run* [p q] (conso #{[:a 1]} p q))
-  (run* [p q] (conso {:a 1} p q))
+  ;; Unifying with LCons now works (kinda, see below, not all options given)
+  (run* [p q] (conso p q #{[:a 1] [:b 2]}))
+  (run* [p q] (conso p q {:a 1 :b 2}))
+  (run* [q] (== (lcons 1 (lcons 2 q)) #{3 2 1})) ; Apparently I'm allowing unification of ordered and unordered topics
+
   (run* [q] (firsto #{q} 1))
+  (run* [q] (firsto #{:a 2} q)) ; Relationally, we should be more formal than clojure: (first #{3 2}) => 3 and produce all possible options
+  (run* [q] (firsto {:a 1 :b 2} q))
 )
