@@ -5,6 +5,9 @@
             [clojure.math.combinatorics :refer :all]))
 
 (extend-protocol IWalkTerm
+  clojure.lang.IPersistentMap
+  (walk-term [v f] (with-meta (hash-map (flatten (walk-term (seq v) f))) (meta v)))
+
   clojure.lang.IPersistentSet
   (walk-term [v f] (with-meta (set (walk-term (seq v) f)) (meta v))))
 
