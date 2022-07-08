@@ -57,20 +57,56 @@
   (run* [q] (== #{1 3 q} #{1 2 3}))
   (run* [q] (== #{1 q 3} #{1 2 3}))
   (run* [q] (== #{3 1 q} #{1 2 3}))
-  (run* [q] (fresh [a1 a2 a3] (== #{a1 a2 a3} #{1 2 3}) (== q [a1 a2 a3])))
+  (run* [q] (fresh [a1 a2 a3] (== #{a1 a2 a3} #{1 2 3}) (== q [a1 a2 a3]))) ; 6 results, this is ok!
   (run* [q] (== #{1 2 [3 q]} #{1 2 [3 4]}))
-  (run* [q] (== #{1 2 #{3 q}} #{1 2 #{3 4}})) ; fails!
+  (run* [q] (== [1 2 #{3 q}] [1 2 #{3 4}]))
+  (run* [q] (== #{1 2 #{3 q}} #{1 2 #{3 4}})) ; fails (sometimes!?) as Choice cannot be walked
   (run* [q] (== #{ #{ #{q} :bar} :baz}  #{:baz #{:bar #{:foo}}}))
 
   ;; Note that sets are "unordered", they should not unify with something with order! They aren't really the same if only one has an order, right? Use permuteo otherwise!
   (run* [q] (== [1 2 3] #{3 2 1}))
-  (run* [q] (permuteo [1 2 3] #{3 2 1}))
+  (run* [q] (permuteo [1 2 3] #{3 2 1})) ; TO DO should not return 6 _0 just 1
 
   ;; a set of kv vectors should unify with a map
   (run* [q] (== #{[:a 1]} #{[:a q]}))
   (run* [q] (== #{[:a 1]} {:a q}))
   (run* [q] (== {:a 1} #{[:a q]}))
-)
+
+  ;; TO DO a map is more restrictive than just a set of kvs
+  (run* [q] (== {:a 1 q 2} #{[:a 1] [:a 2]})) ; TO DO should not unify (q cant be :a as :a exists elsewhere)
+
+  ;; TO DO unable to unify on keys
+  (run* [q] (== {:a 1} {q 1})) ; TO DO should return :a
+  (run* [q] (== {:a 1} {q 1 :b 1}))
+  (run* [q] (== {:a 1} {q 1 :b 2}))
+  (run* [k v] (== #{[:a 1]} {k v})) ; note that this DOES work!
+  )
+
+
+
+(comment
+  ;; not clpset, but should return :a
+  ;; A limitation of core.logic is that it requires ground keys for map unification
+  (run* [q] (== {q 1} {:a 1})) ; ideally :a but no solution found
+
+  ;; Thus no construction of a map is possible based on kv pairs.
+  (run* [q] (== [q] {:a 1}))
+  )
+
+
+
+(comment
+  ;; not clpset, but maps should unify based only on common keys
+  (run* [q] (== {:a q} {:a 1 :b 2}))) ; I think this is why featureo exists
+  ;; here david nolen has some opinion on maps.
+  ;; https://groups.google.com/g/clojure/c/6n7Y7D4Hbc4?pli=1
+  ;; also I went in other direction:
+  ;; https://github.com/reloj/oclock/blob/master/src/reloj/oclock.clj
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (comment
 (extend-protocol IUnifyTerms ;; cant extend it; see https://stackoverflow.com/questions/3589569/whats-the-rationale-behind-closed-records-in-clojure
@@ -236,10 +272,68 @@
 (comment
   ;; Unifying with LCons now works (kinda, see below, not all options given)
   (run* [p q] (conso p q #{[:a 1] [:b 2]}))
-  (run* [p q] (conso p q {:a 1 :b 2}))
+  (run* [p q] (conso p q {:a 1 :b 2})) ; TODO conso loses the "map form"
   (run* [q] (== (lcons 1 (lcons 2 q)) #{3 2 1})) ; Apparently I'm allowing unification of ordered and unordered topics
 
   (run* [q] (firsto #{q} 1))
   (run* [q] (firsto #{:a 2} q)) ; Relationally, we should be more formal than clojure: (first #{3 2}) => 3 and produce all possible options
   (run* [q] (firsto {:a 1 :b 2} q))
 )
+
+;; Conso kills the lack of order (first run works as expected, second run surprises)
+  (run* [q] (== #{1 2 (lvar) 4 5}
+                #{5 4 q 2 1}))
+  (run* [q]
+    (fresh [a b c complete]
+      (== [a c] [#{1 2} #{4 5}])
+      (appendo a [(lvar)] b)
+      (appendo b c complete)
+      ;(== complete #{5 4 q 2 1})
+      (== q complete)
+      ))
+
+(defne featureo [m kvmap]
+  ([m []]) ; trivial case where no feature is required
+
+  ([[kv] [kv]])
+
+  ([[mhead . mtail] [kv . nil]] ; base case for just one key-value pair (one feature)
+   (!= mtail nil)
+   (conde [(== mhead kv)]
+          [(featureo mtail kvmap)])) ; do I iterate infinitely with nil not being empty here? I did not test it.
+
+  ([m [kvhead . kvtail]] ; recursion for multiple kvs
+   (!= kvtail nil)
+   (featureo m [kvhead])
+   (featureo m kvtail)))
+
+(comment ; featureo tests
+  (run 2 [q] (featureo q {:a 1}) (featureo q {:a 2})) ; ought to fail but not implemented very above
+  (run 1 [q] (featureo q {:a 1}) (featureo q {:b 2})) ; should return a set
+  (run 5 [q] (featureo q {:a 1}) (featureo q {:b 2})) ; WRONG! repeats results and considers order
+  (run 5 [q] (featureo {:a 1} {:a q}))
+  (run* [q] (featureo {:a 1} {q 1}))
+
+  (run 3 [q] (featureo {:a q :b 2} {:a 1})) ; infinite results! should I make it a constrain? minikanren typically diverges, while not providing any further info... perhaps there is a way to enhance it.
+
+  ;; TO DO test good integration of featureo and featurec
+
+  (run 15 [q]
+    (featureo q {:size :small})
+    (fresh [f]
+      (membero f [:strawberry :vanilla :chocolate])
+      (featureo q {:flavour f}))
+    (fresh [x y z] ; to constrain size ;;;;;;;;;;;;;; TO DO this does not work
+      (== q [x y z])))
+
+  )
+
+
+(comment ; featureo is a handy function to talk about partial maps
+  (run* [q] (featureo {:a 1 :b 2} q))
+  (run* [m] (featureo m {:a 1 :b 2}))
+  (run* [kv] (featureo {:a 1 :b 2} kv))
+  (run* [k v] (featureo {:a 1 :b 2} {k v}))
+  (run* [m k v] (featureo m {k v}))
+  )
+
