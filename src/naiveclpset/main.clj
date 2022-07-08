@@ -2,7 +2,8 @@
   (:refer-clojure :exclude [==])
   (:require [clojure.core.logic :refer :all]
             [clojure.core.logic.protocols :refer :all]
-            [clojure.math.combinatorics :refer :all]))
+            [clojure.set]
+            [clojure.math.combinatorics :refer [permutations]]))
 
 (extend-protocol IWalkTerm
   clojure.lang.IPersistentMap
@@ -36,10 +37,19 @@
       (unify-terms u (set v) s) ; a map is just a set of key-value vectors
 
       (set? v)
-      (let [u (seq u)
-            v (seq v)]
-        (reduce #(mplus % (-inc %2))
-                (for [p (permutations u)] (unify s p v))))
+      (when (= (count u) (count v))
+        (let [uu (clojure.set/difference u v)
+              vv (clojure.set/difference v u)
+              u (seq uu)
+              v (seq vv)]
+          (reduce #(mplus % (-inc %2))
+                  (for [p (permutations u)] (unify s p v)))))
+        ;; TODO unify-terms should return a substitution, not a stream of substitutions, right?
+
+        ;; alternative higher-level version
+        ;((or* (for [p (permutations u)]
+        ;         (== p v))) s)
+
 
       (lcons? v)
       (unify-terms v u s) ; lcons unification done on the symmetric case
@@ -60,7 +70,7 @@
   (run* [q] (fresh [a1 a2 a3] (== #{a1 a2 a3} #{1 2 3}) (== q [a1 a2 a3]))) ; 6 results, this is ok!
   (run* [q] (== #{1 2 [3 q]} #{1 2 [3 4]}))
   (run* [q] (== [1 2 #{3 q}] [1 2 #{3 4}]))
-  (run* [q] (== #{1 2 #{3 q}} #{1 2 #{3 4}})) ; fails (sometimes!?) as Choice cannot be walked
+  (run* [q] (== #{1 2 #{3 q}} #{1 2 #{3 4}})) ; fails (sometimes!?) as Choice cannot be walked --> not for the moment, as I trim the sets prior to unification
   (run* [q] (== #{ #{ #{q} :bar} :baz}  #{:baz #{:bar #{:foo}}}))
 
   ;; Note that sets are "unordered", they should not unify with something with order! They aren't really the same if only one has an order, right? Use permuteo otherwise!
