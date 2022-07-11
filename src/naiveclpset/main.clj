@@ -90,19 +90,8 @@
   (run* [q] (== {:a 1} {q 1 :b 1}))
   (run* [q] (== {:a 1} {q 1 :b 2}))
   (run* [k v] (== #{[:a 1]} {k v})) ; note that this DOES work!
+  (run* [q] (== [q] {:a 1})) ; Thus no construction of a map is possible based on kv pairs.
   )
-
-
-
-(comment
-  ;; not clpset, but should return :a
-  ;; A limitation of core.logic is that it requires ground keys for map unification
-  (run* [q] (== {q 1} {:a 1})) ; ideally :a but no solution found
-
-  ;; Thus no construction of a map is possible based on kv pairs.
-  (run* [q] (== [q] {:a 1}))
-  )
-
 
 
 (comment
@@ -139,8 +128,13 @@
 
       ;; ...to add this condition so conso unifies with maps and sets
       (or (map? v)(set? v))
-      (reduce #(mplus % (-inc %2))
-              (for [p (permutations v)] (unify s u p)))
+      (let [uu (clojure.set/difference u v)
+            vv (clojure.set/difference v u)
+            u (seq uu)
+            v (seq vv)]
+        (reduce #(mplus % (-inc %2))
+                (for [p (permutations u)] (unify s p v))))
+      ;; TODO unify-terms should return a substitution, not a stream of substitutions, right?
 
       (lcons? v)
       (loop [u u v v s s]
@@ -158,7 +152,7 @@
 )
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; BEGIN HORRIBLE HACK
-;;;;;;;;;;;;;;;;;;;;; only 2 lines have been added to the original, duly noted below
+;;;;;;;;;;;;;;;;;;;;; only a handful of lines have been added to the original, duly noted below
 
 (in-ns 'clojure.core.logic)
 (require '[clojure.math.combinatorics :refer [permutations]])
@@ -231,8 +225,13 @@
 
       ;; This was added to the original
       (or (map? v)(set? v))
-      (reduce #(mplus % (-inc %2))
-              (for [p (permutations v)] (unify s u p)))
+      (let [uu (clojure.set/difference u v)
+            vv (clojure.set/difference v u)
+            u (seq uu)
+            v (seq vv)]
+        (reduce #(mplus % (-inc %2))
+                (for [p (permutations u)] (unify s p v))))
+      ;; TODO unify-terms should return a substitution, not a stream of substitutions, right?
 
       (lcons? v)
       (loop [u u v v s s]
@@ -279,8 +278,11 @@
 (in-ns 'naiveclpset.main)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HORRIBLE HACK
 
+;; General comment here: does it make sense to unify ordered and unordered things directly? shouldn't I need to use a kind of permuteo relation?
+;; Answer. It is practical as cons is used in several places where it makes sense to sequence a set, e.g. in defne. although ideally I'd find those places and change them. So... no?
+
 (comment
-  ;; Unifying with LCons now works (kinda, see below, not all options given)
+  ;; Unifying with LCons now works
   (run* [p q] (conso p q #{[:a 1] [:b 2]}))
   (run* [p q] (conso p q {:a 1 :b 2})) ; TODO conso loses the "map form"
   (run* [q] (== (lcons 1 (lcons 2 q)) #{3 2 1})) ; Apparently I'm allowing unification of ordered and unordered topics
@@ -317,7 +319,23 @@
    (featureo m [kvhead])
    (featureo m kvtail)))
 
+(defne any-placeo ; from oclock
+  "A generalization of membero and rembero, and, backwards, a 'random-popo'."
+  [x l o]
+  ([_ _ [x . l]])
+  ([_ [l1 . ls] [l1 . os]]
+   (any-placeo x ls os)))
+
+(defne featureo [m kvmap]
+  ([m []])
+  ([m [kvhead . kvtail]] ; recursion for multiple kvs
+   (fresh [m2]
+     (any-placeo kvhead m2 m)
+     (featureo m2 kvtail))))
+
+
 (comment ; featureo tests
+  (run* [q] (featureo q {:a 1}))
   (run 2 [q] (featureo q {:a 1}) (featureo q {:a 2})) ; ought to fail but not implemented very above
   (run 1 [q] (featureo q {:a 1}) (featureo q {:b 2})) ; should return a set
   (run 5 [q] (featureo q {:a 1}) (featureo q {:b 2})) ; WRONG! repeats results and considers order
@@ -338,12 +356,18 @@
 
   )
 
-
 (comment ; featureo is a handy function to talk about partial maps
-  (run* [q] (featureo {:a 1 :b 2} q))
-  (run* [m] (featureo m {:a 1 :b 2}))
-  (run* [kv] (featureo {:a 1 :b 2} kv))
-  (run* [k v] (featureo {:a 1 :b 2} {k v}))
-  (run* [m k v] (featureo m {k v}))
-  )
+  (run 5 [kv] (featureo {:a 1 :b 2} kv)) ; TO DO repeats elements of the feature powerset
+  (run 5 [k v] (featureo {:a 1 :b 2} {k v})) ; Interestingly this works!
 
+  (run 5 [m] (featureo m {:a 1 :b 2}))
+  (run 5 [m k v] (featureo m {k v}))
+
+  (run 2 [m]  ; TO DO does not conserve this as a map
+    (featureo m {:a 1 :b 2})
+    (featureo m {:c 3}))
+
+  (run 2 [m]  ; TO DO creates a non-map as :a has two incompatible values
+    (featureo m {:a 1 :b 2})
+    (featureo m {:a 3}))
+)
